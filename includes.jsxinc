@@ -1,0 +1,1204 @@
+function get_config_path( subfolder ) {
+	if ( ! subfolder ) {
+		subfolder = [];
+	} else if (typeof subfolder == "string" ) {
+		subfolder = subfolder.split("/");
+	}
+  var base = unescape(Folder.userData.fullName) + "/cs_octopus";
+  if ( Folder(base).exists != true ) Folder(base).create();
+
+	for ( var n = 0; n < subfolder.length; n++ ) {
+		base = base + "/" + subfolder[n];
+		if ( Folder(base).exists != true ) Folder(base).create();
+	}
+  return base;
+}
+function get_appconfig_path() {
+	var base = unescape( Folder.userData.fullName) + "/cs_octopus_" + app.version.split(".").shift();
+	return base;
+}
+
+function get_local_config_text() {
+  var base = get_appconfig_path();
+  var raw = read_file( base + "/local_config.json" )
+
+  return raw;
+}
+
+function get_script_version() {
+	var dbg = false;
+	var script_name = get_script_name();
+	var v = "?";
+	try {
+		var json = JSON.parse( get_local_config_text() );
+		for ( var n = 0; n < json.scripts.length; n++ ) {
+			if (dbg) $.writeln( json.scripts[n].filename + "?==" + script_name )
+			if ( json.scripts[n].filename == script_name ) {
+				v = json.scripts[n].version;
+			}
+		}
+	} catch(e) {
+		$.writeln( "line: " + e.line );
+		$.writeln( e.message );
+	}
+	return v;
+}
+function get_script_name() {
+	try {
+		scriptPath  = app.activeScript.fullName;
+	} catch (e) { 
+		scriptPath = e.fileName
+	}
+	var script = scriptPath.split("/").pop();
+	return script;
+}
+function get_script_folder() {
+	try {
+		scriptPath  = app.activeScript.fullName;
+	} catch (e) { 
+		scriptPath = e.fileName
+	}
+  var file = new File( scriptPath );
+  var folder = file.parent;
+  return folder;
+}
+function log_error( e, v ) {
+	var uid = app.userGuid.split("@").shift();
+	if ( ! v ) v = "?";
+	try {
+		// var log_path = unescape(Folder.userData.fullName) + "/cs_octopus" + "/error_log.txt";
+		// var f = new File( log_path );
+		var f = new File( get_config_path("logs") + "/error_log.txt" );
+		f.encoding = "UTF-8";
+		f.open("a");
+		f.writeln( "uid: " + uid);
+		f.writeln( "script: " + e.fileName.split("/").pop() );
+		f.writeln( "version: " + v );
+		f.writeln( "app-version: " + app.version );
+		f.writeln( "plattform: " + File.fs );
+		f.writeln( "line: " + e.line );
+		f.writeln( e.message );
+		f.writeln( "-------------------------" );
+		f.close();
+	} catch(e1) {
+	}
+}
+function get_now_string() {
+  var now = new Date();
+	var now_str = now.getFullYear() + "-" +
+	("0" + (now.getMonth() + 1)).substr(-2) + "-" +
+	("0" + now.getDate()).substr(-2) + "_" +
+	("0" + now.getHours()).substr(-2) + ":" +
+	("0" + now.getMinutes()).substr(-2) + ":" +
+	("0" + now.getSeconds()).substr(-2)
+  return now_str;
+}
+function parse_now_string(s) {
+  try {
+    var d = new Date(
+      Number( s.substr(0,4) ),
+      Number( s.substr(5,2) )-1,
+      Number( s.substr(8,2) ),
+      Number( s.substr(11,2) ),
+      Number( s.substr(14,2) ),
+      Number( s.substr(17,2) ),
+    )
+    return d;
+  } catch(e) {
+    return null;
+  }
+}
+function log_run() { 
+  try {
+    var script = get_script_name();
+
+    var uid = app.userGuid.split("@").shift();
+
+    var now = new Date();
+    var now_str = get_now_string();
+
+    var f = new File( get_config_path("logs") + "/run_log.txt" );
+    f.encoding = "UTF-8";
+    f.open("a");
+    f.writeln( now_str + "\t" + script + "\t" + now.getTime() + "\t" + uid + "\t" + File.fs + "\t" + app.version + "\t" + app.locale.toString() );
+    f.close();
+  } catch(e) {
+    
+  }
+}
+
+function push_logs() {
+	var rl = read_file( get_config_path("logs") + "/run_log.txt" );
+	var el = read_file( get_config_path("logs") + "/error_log.txt" );
+	if ( ! rl && ! el ) return;
+
+  var data = {
+    run_log: encodeURI( rl ),
+    err_log: encodeURI( el ),
+    uid: app.userGuid.split("@").shift()
+  }
+
+  var _data = JSON.stringify( data );
+
+  var request = {
+    url: "https://octopus.cuppascript.de/api/v1/scripts/use",
+    command: "", // defaults to ""
+    port: "", // defaults to ""
+    method: "POST",
+    body: _data,
+    headers: [{name:"Content-type", value:"application/json; charset=UTF-8"}]
+  }
+  var response = restix.fetch(request);
+
+  var now = get_now_string().replace(/:/g, "").replace(/-/g, "");
+  write_file( get_config_path("logs") + "/run_log_" + now + ".txt", rl )
+  write_file(get_config_path("logs") + "/run_log.txt", "" );
+  if ( el ) {
+    write_file( get_config_path("logs") + "/error_log_" + now + ".txt", el )
+  }
+  write_file(get_config_path("logs") + "/error_log.txt", "" );
+}
+
+function log2dt( fname, str ) {
+  fname += "_log.txt";
+  var f = new File( Folder.desktop.fullName + "/" + fname );
+  f.encoding = "UTF-8";
+  f.open("a");
+  f.writeln( get_now_string() + "\t" + str );
+  f.close();
+}
+
+function read_file( path ) {
+	if ( path.constructor.name == "File" ) {
+		var f = path;
+	} else {
+		var f = new File( path );
+	}
+	if ( ! f.exists ) return "";
+	f.encoding = "UTF-8";
+	f.open("r");
+	var data = f.read();
+	f.close();
+	return data;
+}
+function write_file( path, data, mode ) {
+  if ( ! mode ) mode = "w";
+	if ( path.constructor.name == "File" ) {
+		var f = path;
+	} else {
+		var f = new File( path );
+	}
+	f.encoding = "UTF-8";
+	f.open( mode );
+	var done = f.write( data );
+	f.close();
+  return done;
+}
+
+function cs_alert( level, msg, titel, btn ) {
+	var rs = true;
+
+  if ( ! titel ) titel = "Obacht";
+  var w = new Window("dialog {text: '" + titel + "'}");
+  w.g = w.add("group {orientation: 'row', alignChildren: ['left', 'top']}")
+  w.g.spacing = 20;
+
+  if ( level == "stop" ) {
+    // stop.png
+    w.g.add("image", undefined, unescape("%89PNG%0D%0A%1A%0A%00%00%00%0DIHDR%00%00%000%00%00%000%08%06%00%00%00W%02%F9%87%00%00%00%09pHYs%00%00%0B%12%00%00%0B%12%01%D2%DD%7E%FC%00%00%06%94IDATh%81%CDZ%0BPTU%18%FEy%B8%0B%2C%8F%85%1D%D0%C5V@%C4%17%8B%92hVV%80%CE%E88%8D%9A9Nj5%D8%8C%3D%1Ck%24%B3%CC%A6%C6lF%CD%B1i%88%C6%D1j%AC%A54S%D3%28%8A%1AK%05%13%B5%92%09%93%7C%80%0C%1A%22%8A%A2%02%8A%81%E26%DFa%EF%F5%DE%7D%9C%FB%80%85%BE%99%9D%BD%F7%EE%B9%E7%7E%DF9%FF%EB%9C%BB%01N%A7%93%B4%E2%8A-%C5AD9%9Ao%E4%A3%20%A6%AEz%BE%D6%9B%02%FF%27%E4%81%1CW%DF%9A%A0I%80%1F%C9%0B%D0%2CB%B5%09%F5%14%F9cIqTf%B7Q%B3%29%84%FE%89%8Bd%D7%065%B6%D0%A0%C6f%F6%99PYGZ%CC%29XM%A3%EE%92%DF%3A%D1N%3F%8CO%A1%B24%1B%B5%84%19%B9m%23%DB%DA%E9%85%EF%CAs%16%27%8F0%C4%D7%9C%98%A7%D4%B7%E2%0C%E8%25%DFl2%D2%C6ici%E3%F4%0CE%D2%DE%60%3F%D3H%A5%B9%05%8A3%C1%15%A0%97%FC%C6i%19%B4v%EE%04%5D%C4%A5x%BE%A8%9CVo%DA%CB%15%E1S%80Z%F2%C6%D9%8F%93%E9%FD%B5%ECx%DB%95%1Az%E6l%29%DD%BCs%BB%5B%C4%05%C0%9Cj%E7%E5%13%CF%27%BCF%21%3D%E4%17%9C%DDOsk%F7%F4%18y%003%08%87%E7E%27%0F%01z%C9o%BA%7C%92%B4%A7De%20j%B9%E0U%84L%80%1E%F2%07%AE_%60%E4%FD%05%84%5B%09%3CD%88%02%F4%90%07%5E%AA+%F3%1By%1F%90%89%60%02%F4%92%07N%FD%DB%DC%5B%C4%A5%10E%04w%87%3C%D0%93N%AB%11%10%C1f@7%F9%DE@Zm%23%EF%299%8A%C5%5C_%92%07%EC%7C%01%FCj%B4%AF%C9%07%07%04PJ%E6%24n%1B%AE%005%E4%F1%10w%24%1A%22dW%B2%22%E2%29%3D%CC%C2%8E%F1%FD%989Q%3C%E7a%82i%80%22%07U%D5%28%0F%09%86%08%EAt%3A%19%29s%B0%81%B5%84%80%C2kg%D8%07%C8%8D%B3%D3%B5%CE%0E%D6%26*%C8@3kvSE%5B%13%B7_%0CKAR%B6%E2%F35%AF%C8%DC%81%D1%05%CEt%B4%D2%0Ak%06%CD%88JdD%05%F2%80%A3%A9%8Ar%2CCi%C5%F9%23%EC%5C%CD%E8%3F%12n%A5%04C%B8%FF%05%BCe%1D%C3%C8%0B%A4%DEn%28g%A3%2C%05F_v%7E%BB%C3%5BW%22B%03%83U%8D%3E%F5%84%00%8C%D2%80%7EaT%D2%DA@%CD%9D%1D%E4H%CC%A2%95%0D%E5%B26%25%AD%E7%E9%83%C6J%CA%8E%88%A7%EC%AA%EF%29%AF%F1%98%CF%FE%60%3A%9F%25d%AA%1A%7D%D6%BE%E9%9E%21%3Ek%B0%98%BAjU%9D%08%C5%9C9%C8@%E6%20%23%9B%11%BD%F8*i%12%3D%11%93%2C%BB%1B%09%CB%17%BA%ED%C4%80%3D%24%9A%7D%C3T%DC%CDE-%606%18yw%F2J%E0%0A@%A48%D2v%89%86%87%98%E9%A1%F0%01%3E%DB%15%5C%A9%D2E%1A%CE%9E%19n%A5%B1%A6Xn%FF%3Cp%05%DC%7Bb%A7x%8C%07%C1%B1%BC%D9%E6Q%85%90%E8%0B%F0%8Do%92%27%EB%BAW%80j%27.%BD%DE@%23%FE%DENg%3B%AE%CB%AEC%A4%96%85%8C4%F1%C1%DC%E0%3F%DD%81%A2%80%D1a%16%12%1E%89%CA%13%22%B0%F6%25%97%F3*%25%24w%E4X%86%C9%AE%7Cz%F9%A4%C7%A0%08%C0s%B2N%15Q%F1%F8%14%B6%CB%E1%0D%DC%28%B4%E4%D7OXX%C4%03@%5CZ%3A%C3%E9%A4%E7%10%19%14%10@%B7%15%B6i%9C%19%CF%B1Y%93%0AG%F4%BA%9A._%B3/%AF%FF%9D%DE%BDP%21%9Ec%9B%E5%8B%D5%85l%F3K%0A%EE%0C%CC%B7%0Ce%D3%BC%AF%F5%3C%1D%1E%3E%83%92%8D%91%E2o%EE%E4g%98%13E%F2%9E%D5%91%1C%85%C9S%3CL%09%23-%C5%7B%17%8FR%20%05%D0%A2%B8T%9A%FA%DBi%AAL%8C%A3%17%17O%F5%E8%8B%EB%C4%E88%BA%A2k%F5%96%19a%A5%D3%F69ld%D0%B9@%16%A3%87%12%E2%D5%FA%C3%E2%7D%C8%C4%DE%C2%A9%D9%95%A1%11%08%D6%0D%BC%9F%5E%3EwH%FC%0D%3E%96w%F1%18%E5%F6Oc%E7%A8%AFF%85ZhsS5%FD%99_LQ7%DA%BDr%E4%CE@%D4%B2%95ld%17%C7%D9%A9%B4%B5%81M%FB%9A%81%F7%D1%AD1%CF2S@%D2%B1%04%87%D0%92s%87d%A3%3F+z%F0%DD%11%F2R%AD%02%20%3A%25%D2%26%BB%86%7E%B0I%00%0C6F%B2%84%B8%E9%C3%DD%3E%C9+%0A%18%5D%7C%80%B6%AC%DF%C3%B2+%B9%0A6%00%3E%81%99%99S%BB%87j%DA%5B%C4%28%04%AA%5B%93%26%D1i%C9%3A%19%25%B1%3B%E0%03%D6%BF6%D3G%09%0F%CB%CC%12%FDL%AE.f%FD%CF%8E%1EL%0Bv%94Q%F6%EE%3Fx%14%95%A3P%FB%8E%5D4%EC%CDu%EC%183%00%D3%80C%BB%9B%08%88lu%95%01Go%DEu%D0%85%B1%23e%ED%10Y%D0%CF%85%5Bm%94%7E%FCkf%96%EE%BE%85%FE_%5B%B7%9D%DE%F8%BCD%89%1E%13P%A0%D4h%CA%CF%E5%B4%3E%FFG%969s%EB%0E%8A%0E%8C%11%9F%1B3%84%99%13%88%08e%80%20%0E%E6%E3%5E%1Al%B8t%9C%7D%A3%00D%3B%98%8C%BB%88%DC-%A5%E4%DC%F9%AD%22yp%0Ft%ED9*%8A%98%B3%B7%92%AC%CBWQASW%D9%10%DF%CFD%FB%87M%A7/%93%26%CA%DA%C1%C9%05%D8Cc%D8%91%E0%BC%ED%CE%3B%E29%22%1C%E0p%F5%07%11%E3L%B1%F4%8E%A3%84%96n%3B%A8%8A%3C%B83%13R+%A2%DF%AE%226%13%C0%AA%81%E3%E8%97%96z%0FS%12%08%01%AF%F7Og%DFpt%92%84%5E%08%11%89K%FCe%DF%C7%87iQ%21%DF%E6%A5%E4I%1AFq%C1U%B6r%B7Y0%13%D1AFZ%BB%D4%C2l%1D%8E%8DdG%AEmF%D86%B9%99OZh%0Csv%20%240%88%09%19j%8CbmaJ%C0%8D%25%CB%98%BFi%21O%EEN%ACv%26%E0%13%3B7%94%B0%DC%20%C5S%B5%7B%C5%B3%85%B1%A9%E2%F1+%FDG%89%C7%C8%E0%F0%99%3C%DB%03%EC%1C%95%AE%5E%F2%1E%02%B4%88%88.%FC%89%9E%5C%ED%10w%20%B0%06%16j%1A%D4O%F9%B6%07%C5%B6%28%95SC%BB%D6%0CW%3B%BBb%BA%60BO%AFq%E8%26O%3D%F1%82%E3%C6%CCG%C9%96%9FGYUE%2C%D9%21%0BW%8C%9C%E5%B1%B5%82%D2%19%CBIreu%B4%85%3F%C1%24%F5%92%E7%0A%D0%22%C2%CF%E0%BEb%E2%262%B5%E6%E4G%28%BE%E4S%CC%C4%7D%28B%D5%BBbU+%B2%3E%10%A1%FAE%B7%EA%25e/%8A%D0%F4%A7%0FM%1B%5B%BD%20B%F3%3FV4%EF%CC%F9Q%84%F6%BF%DB%10%D1%7F.%CA%0A%CF%AE%21%84%00%00%00%00%00IEND%AEB%60%82") );
+  } else if ( level == "vorfahrt" ) {
+    // vorfahrt.png
+    w.g.add("image", undefined, unescape("%89PNG%0D%0A%1A%0A%00%00%00%0DIHDR%00%00%001%00%00%000%08%06%00%00%00%B8%C0%92%B9%00%00%00%09pHYs%00%00%0B%12%00%00%0B%12%01%D2%DD%7E%FC%00%00%05%7CIDATh%81%DDZmh%5BU%18%7E%B2%B4%09%ED%92.Mg-%5D%E22l%A4v%9D%0D%94%D1%E9%C4%C6%FE%19%08%96%B12%ED%26%D2%88s%20%F8%A3%8A%B6%B8%09K%99%03%7F%88%A4+e%CEZ%9B%EA%8F%EA%04Y+%ED%EC%14M%90%AE%9B0%97%B0%82lA%9A%9A%AE%D5IB%9B%B8%F5%C3%B9%C8%B9%BD7%BB%B99%F7%DE%DC%7C%14%E7%03%21%E7%9E%F3%9E%8F%E7%BC%E7%BC%E7%3D%EF%BD%AAx%3C%8E%FB%1D%1B%EE%7B%06%FF%17%12%05%EB%D9%99%EA%F2G%16%006%F6g%60%FF%3D%00%16%00%F8%C8/%5E%7FxAq%BBaS%95%03%80%25%3F%C3%06FwY+%DC%7B%EAl%3FWUT/%E8%8B6%C9%C97%FC2%EB%EFr%7B%3D%3B%AF%CD%A5K%C6%C3%91%18%C8%7E%B8%C9%18j%AA%C5%87%CD%F5%98%B2%94+%AE%5Br%7B%19%23G%BF%C0%8E%E9%9Br%A2%8BD%01%8Cu%8A%98%ADD%A5%8DY%8F%1C%C0D%AD%19G%0E5e4x%3E%CC%7FF%E1%7B%E5%B4%9CX%971%14pr%1B%DB%99U%8FdJ6jq%E4%E5%264%BF%DB%9A5%01%82%D0%03%25%18k%B0J%89%CC%10%02%E0%AC%931%14%20%9A%18%CC%B4%C3%AB%DB%CA%D1%7C%A2%15%A7%9F%AD%CF%B4%09*F%1B%AA%A4%8A%1D%5C%82o%9D%08%AB%BD%00R6%9F%BA%A6%1A%AA%92%12%3A%81%07uh%3E%F8%18%A2%DA%C2%9C%12%20%08U%1A%C5%8A%BC%EC%C43H%900%86%02%C1%88%D9%EA%02pLXCm2A%D7%7F%8A%DA%DA%D1%EB%23%88%C6%7E%CF%C9%A0%85%98%A8%AE%14+r%F0%1F%92%0E%3Bv%8D%CD%08k%AC%9E%FF%0E%7FO%5EJi%C9w%3B%0Co%9E%08H%A0%9BL8%BF%98vb%B7%D3%EA%DFz%A33%25%EF%ECB%90%26%9A3%10S+%C0%22%CD%08%A5%900%86%02g%C9%9A%13%E6%DF%9D%BD%81%E5%8F%DDIy%C1%D5X%5EIP%CE%09%A71%14H9%04%C5%7C%27%AA6%96%3E8%89x4%9Ax%0E%AEFib%F9%82%DF%18%0A%B8hmSI%18C%01%E2%C7t%0B%F3%E3%B1%18Cd%BD%B0%FB%EA%AC%EC%C4%8A%92%60%E1d%D7%60%12%96%FB%07%99%A5%B5%1Exr%EA7%AE%97a%BEIM%9B%04%BB%F6%A8%27%F9_%AFw0%FFv%DD%16j%5D%8BF%9FH%1B%D4%1A8%CA%1EI%E4%DB%F5%95h/%DF%21%3B%05%C4%ED%D8%3D%15%E2%1EE%B5%009W%9C%AC%C1%88%D9J%1A%D8%CA%CF%BFs%F1%27%AC%8E%7F%0B%FB%13%DB%D15%0Ff%90%16%ED%BD%81%93%C1%3A%82k%13%B7%D7%60%81A%AD%85%AF%A6%05uEe%18%5E%08%26%CA%A4%D094%C1%95v%09M%AA%10%B2%D7%D3%88%D9j%07%F0%830%7F%83i%0B%0C%93%1E%94%FA%DC%0C%81+%8F%B6%24%AC%D5KA/%3C%B1%B9%84l%BC%FE0s%A6%90%F2R%B5%16%F6%EB_K%F6%C9s%FE%18/%95f%91%92%C6%227%23%ECZ%A4%9A%5C%B2%C9%1B%F5%95%CC%00%09%3C%B1y%04Wb%B0%15%95%25%C9%FA%97%C2r%DD%24%A1%B7%7B%8C%7Bl%97%23%90%16%09%16%0EZ%2697%DA%8ALL%DA%1B%9Bg%96Ni%81%16%EE%F0%B5%249%E7%DCe%2C%FE%B3%BA%26%F3%EB%B8dG%1D%9F_%E0%F6%02%F1%8F%DC%92%C2%2C%D2%8EvD%CCV%27%CD%AF%D2%EE%DF%07%DD%0B%0F3i%5BqYB+%99%A0%F5%FB%29%F4%9E%3C%C7%D5%7CZ%CA%22%F1%A1%24P%E0%A2%99%DC%95/%BFB%ADj%23%93%CE%94%00q/%88%06x%04%06%D3%25%00%25%9A%C0%9A6%A8W%D9%F1%17%9F%C1%C1%96%EDi%B7Cp@%5B%89%8E%B6cX%29%2C%80%F5F%84_D%26%CA%26g%91%F8P%14%B2a%D7%A8_%98%BF%E7%B31%3C%B5%A4%EC%3E%D186%89%87nF%85%04%08%5CJ%08%20%C3%B8%13%F5%E09%E1%1A%91%AD%B8I%ADa%FE%1B%EF%EA%B0%BF%E7%0CM%24q%E5T%02%C5%24%D8%B5%3A%2C%CC%AF%B94%85%D7f%EFH%D6%25%27u%A3%BE%02%1D%FD%E7EE%94%8E%07YD%00%DBi%9B%FC%CD%E3%9F%C2%A0%12_V%86%02%0D%FA.%86%B1kt%82V%ECe%AF%01%8A%91%11%09v%CD%A6%B8%C5%FA%3F%C2x%FB%C7il-%D4Q%EB%D5%A3%18%9B%DF%EB%11k6%23-%20%CBX%AC%8Bv%95%3D%F4%FE%10%9AV4%89gn%1F%10l%1E8%C3%B8%F3%14%0C%B2%EE%7FF%C8%98%84%94%97%FB%7C%DF%3D%DF%C8V%BC%16%B1%B0%A8%8BP%DE%FB%09M%9C%2C%CB%8C%B5%80l%A3%E2%AC%C9M%F1%ABv%9E%BB%80%E6%5B%1Af%13s%E8%1C%B9%02%15%FDH%A2%5E9%95%20%17%A1%7D%AA6%8E%BF3%80%C7%0BJ%9941%A9%CF%F5Q%3D%D7%19%B1+%E7%BA%92%10%8B%1E%9A%A6%E7%D0%F6%8D%8F%B98%BD%D5%23jt%A8%8E%A5R%E4%E4uW%C4l%25%EF%1A%82%B4%E8%A1%FF%D5%03%A8%3B5D%ABFL%AA%FD%3FC%02%12%5E%AE%04%B6%29u/%C4%90%D3%17%8F%11%B35%28%BC%CA%8A%80D%F1%B2%B2H%7C%E4%FA%9D%5D%3A%03%A3F%F1%B2ANI%88E%0F%05H%EB%CA%A9%04%F9x%7B*eq%FC%E9%5E9%95%20%E7%24%D8%CD%9A%12%3Dd%91%B3%7D%C0G%BE%DEc%D3%A2%87%92Q%BCl%90%17%12%22%7EU%5E%B4%80%7C%7EQ%C0%BA%13%9C%97+%1B%C5%CB%06%F9%FE%2C%C2%C1%12%C9%DA%3F%92B%DE%BF%B2%89%98%AD%96%7Cj%81%E0%FE%FFT%08%C0%BF%D5%2C%FF%83m%20%1E%25%00%00%00%00IEND%AEB%60%82") );
+	} else if (level == "question" ) {
+		//question
+		w.g.add("image", undefined, unescape("%89PNG%0D%0A%1A%0A%00%00%00%0DIHDR%00%00%000%00%00%001%08%06%00%00%00%9C%5E*%22%00%00%00%09pHYs%00%00%0B%12%00%00%0B%12%01%D2%DD%7E%FC%00%00%05%F2IDATh%81%EDZ%5Dh%1CU%14%3E%23i%A1%1AI%9C%A0U%CC%BAm%D3%7D%B0%28%5B%18%B0%F8%94%B5%28%E2%83%9A%22i%FB%96%94%C0%14%11u%FB%20%AD%BEt%03%82%0D%05%B3%05A%3A%28%D9%80%0F%AD%7D%E8%F6%C1%1Fl%D1%0D%88%96%E2%60J%E3C%19%13%B7.j%AB%B8%C9b%04+%C8%C8%99%7Ew%BD%7B3%7F%FB%93%D4%8A%1F%5Cv%E6%DE%3B%F7%9Es%EE%F9%9DY%CDu%5D%BA%95q%DB-M%FD%7F%81%81%AE%A0%81j%22e%10%D1%E3D%C4%BFw%E1Z%E0%1C%11-%10%91%ADW%1Ck%CD%A8%F5A%83%0DT%13%29%26%D4D%DB%12s%8DE%22%9A%D0+%CE%C4%1A%D1%DC%00%95%81*%A4%DD%0A%2C%BD%E2%EC_k%06T%1B8%D5%C6Zf5%91%3A%D2%26%3DMC%3D%01%D6%F3%B3%B8%5D%84%AE%DBh%84%D31%A0bA%27%F5%84%5Eq%CE%DD%14%06%E8%06%13_%B1%3A%F0i%E8%15g%D1%EF%21%D8%CA%110%A2%82%9F%DB%BD%06%B4%7Bh+%90U%13%A9%B3%8Aw%F2%A0W%1C-rc%DB%CA%10%D1v%B4M%E8.%A3%15%5D%C3%9C%8DCC%BB%0C%0C%13%D1%FB%3EC%03z%C5Y%F0%21z%88%88D%EB%89X%7E%86%88r%AEa%96%C2%26%B5%9DJT%13%29%BF%05%1A%EC%00%84%E7%89%28%D9%C2%16%8F%851%11%18%C8%3A%01%CD%B6X5%0AD4%D8%C6r%05I%C5V%A0%ADT%02%C6%EC%07%1BR%9Fm%93xFR%B3%AD%EDA%83%ED%E6B%C3%3E%7Dv_%F1%95%11%22%3A%1DC%CF%E3b%ED%188%FF%60%3F%EB%FEd%87%08%17%E8%BC%0A%21%E8%A9.t%F1%B9%F1%E1%07Z%5D%B3%15%B4%C4%80%14%C8TL%FC%B1%BEk%DB%BF%9E%01%10o%28%7D62%D2t%07%E8R%B1%144%D04%03%D5D%CA%F4I%218%E5X%CDL40*7%C5%00%8A%9C%E3%3EC%87%F4%8Ac%FB%F4w%04a%81%2C6%03%D0%FB%B3%3EC%13JUvE%9D%90%5C%DF%5D%BF%CEn%7C%D8%BB%E7%C6%D7%7B%F4%81%A8%AD%CF%84%0D6%13%89%8F%FB%A4%D0%E7%F4%8AsH%E9+%ED%D1%07F%9E%BF%FB%1F%5B%EE_w%07m%9D%3B%E1%5D%1F%DC%98%F6%DA%BD%EBn%A7%A5%BF%FE%A4%A7%BF%FD8j%DF%5C%D8%60%AC%13%80%CBT%7D%3E%EB%BD_%DA%5C%3AY%9D%A7%F4%86%3EO%CA%9Ck%BD%F5%CB7%F5%C1%CB%D7k%1E%F1%B9%1Foh%DC%E7%CBW%C3%B6%9E%8E%CAJ%E3%AA%D0A%9F%BEC%01%F5B%91%88j%E2%86%A5%BC%B1kC%7D%F0%CB%E5k%DEo%E6%CE%FB%A8%7C%FD%B7%B0%3Dy%8Dl%14a%91%D9h5%91%E2%E2%7E%5E%E9%5E%D0+N%A0%F2j%B6U%605%CA%F7%3FJ%E7%7F%FF%99v%CD%7F%D20%FE%C6%FD%8F%D0%07%B5%EF%C3%A4%CF%C4g%E2%D4%04ql%C0/%DF%89z%95Rf5%E2%E6%87W%7F%B8%10%F6%AC%A8%03b%154q%18P%03%16%A1V%0EC%60%EE%12%803%F0%F5%A5%A8%02FE%1C%15%AA%97%8D/%BC%F4%14%9D%D8%F9%90%18bw%99u%0D%B3%28%CF%D7l%AB%17ea3%99%E8E%D70%033%CE0%C4%8E%03%976%DF%23%13O%A8%AEN%B3%BE+S%F31%89%97%E3EZ%B3%ADH%83%F5C%EC8%F0%E1%8E%94%7C%7B%0Cu-31%02%A93%01%A3%7C%1FsI%3E%A5%924%3F%A7%D9%16%17%F3ey%92f%5B%A3X%97%E7%E6%5D%C3l%C8%8B%9A%3A%01%C6%DEO%E78%B4gQd%88%28%F9%2C%11%7DGD%87%A5GB%23%28t%3E+%B9%DC%1E%B8%60%99x%7Es1ED%BDX%BB%04a%C5g@%AF8%5C%A0k%1F%ED%D8%CA%DE%81%D5h%5C%B3%AD%3C%08%E0%289.%FB%7D%E0%98b%C8%EA8c%09%D2%94U%27%8D%B5%05%04%83%DC7%8DL%B7A%D5%9AI%E6%E4%A3%CD%20%C5-%B8%86%99%C3i%1C%003%07p/%D2%EA%19%29%1D%AE%A9%EB%B9%86Y%00q%02/CmHzO%94%95%D6%C8%B4%CA%80po%19%E8%7FQ%10%09%BD%5D%82%AENJ%85%FCE%F4%89%D7%29%B2o/k%B6%B5G%B3-%5E%F7M%CC%15%C8%A3%90/%60%8F%C0%1A%A3%19%06D%8A0%08%A2%3CI%F0F%90%D8%94Dh%0DR%CD%28%05%B9%EA%B1%A6%B0%DE%0C%E6%0A%26z%24%81mF%13%1A%D0%60%E4q%93%B9%E1_%87%8E%EE%CFM%CF%BC%83%AE%C3%D8%B8%06%C9OI%84%EFs%0D%B3%D75%CCQ%E8%F8%90%18%83%BA%080c%9C%24%5D%85%91%3E%E9%C3%C4%D7%10%D6%90%94%956%18z%A8%1B%95j%00/%1A%BFx%FA%02%25%AF%D5%96_%1B%DBY%FA%A9%AF%3B%01%E3%12Fu%05%F9KYYF%E8lQ%9A%97%04%D1%8C%09%A8%DD%5E%D70O%C2%F3%14%255%94%3D%DB%8C%1A8%A3N%60E%ED%FB%CC%17%97%BB%E7%C6%DE%DE%C6%91%13%12%95%09%2C%E1%85%96%07%A8VR%1A%27%C9%0E%84%97%3A%8A%7B%AF%D6%E0Ss%0D%93%D7%DC%A7%D8%C5E%E94%EB%88%0Ad+%DE%3C%03%5B8K%C5%0B%5C%D9%C0%84%C7%10%C4%D6OG%92%5C%09q%83%89%7C%17%7Dcj%DD%0B%E1%14%20%88M%3E%27%EB%21%EA%04%C2%BE%93%891%91%12%CC%C2%1E%CA%D84+1%27%FBn%C1%08%9F%CC%EBD%F4%9E%F4%BC/%82%88%8F%C3@%60%D6%29%BD%7D%16%C65%05%C9%AA%D2%3F%23%EB-%88%11Q%BA%00%3B%22%D5%BB%C4E%14%03Ay%7F%FD%8B%24%8Ez%1Cns%17%13%0B%3BH%C2+%154%DB%CA%29/h%B3%92KN%23%1Bm*%8D%16%08%B5%01%BD%E2%9C%AA%26R%BBQR%1A%F86l%A9%9FT%11%8De%08%03%15j%91E%EB%C5%FC2%BCM%06%7Dyj%11%AB%F2_%09%10%F7%99%28%0D%D1%26%5D%C3%8C%FC%F4%D4%2CV%EB%03%C7%2C%A2%EB%20%82%11%29.%B1cX%D5%7F%AB%20%0E%08uZ%91%CBwd%8F%FF%FFns3AD%7F%03%B1%DF-%86%25%83%8EE%00%00%00%00IEND%AEB%60%82") );
+	} else {
+    // warnung.png
+    w.g.add("image", undefined, unescape("%89PNG%0D%0A%1A%0A%00%00%00%0DIHDR%00%00%000%00%00%000%08%06%00%00%00W%02%F9%87%00%00%00%09pHYs%00%00%0B%12%00%00%0B%12%01%D2%DD%7E%FC%00%00%07%C3IDATh%81%E5Z%5BL%5CE%18%FE%CAn%B7%14%CB%A5%60%D0%A2%D05%15l+%28%86F%A9%1A%BBj%AD%3E%A8%C5%A81%D6%07%D6x%A9O%EDj%8C%89%D1X%8C%89%26%3E%28X%7D0j%5C%1E%AA%D1j%84%B6%DA%A6%DE%96%C4k-J%83%B5%16%AC%DDBl-%16%DC%05%C4%8A%20%E6%1Bf%0Es%CE%99%BD%B0%944%C6/%D9%87svv%E6%FB%FE%F9o%E7%CC%CE%99%98%98%C0L1PZ%1E%00%A0%3E%7E%00%8B%13Ly%04@%14@%84%9F%C2%DE%EE%C8L%D7%CEX%80%24%1D%04P%07%20%3F%C3%F5%E3%00Z%00%843%153m%01%92x%03%80U%99%2C%98%04m%9Cw%BAB%D2%160PZN%D7h%04%B06S%86%9D%E7%15%E3%F3%CAR%C4%CF%C8FOq%9E%B8W%D67%88%B2%BE%B8%F8%5C%F1%7D/%EF%B5%02%08%15%F6vGO%99%80%81%D2r%BAI8%13Wy%F3%9AJ%BC%7FY9%3E%AF%3A%17%839%D9I%C7%E6%8D%9C%C4%03%DB%BE%C5%FA%1D%ED%83%05%C3%27%EB%0B%7B%BB%5BR%CD%9FR%C0@i9%AD%BE1%E5D%B9%B9%98%BB%F22x.%5C%86%E1%95+%B0%D9%F3%1B%5E%F0%9C@%1C%E3%A9%7E%EABe%B4%0Fm%A1f%DEn*%EC%ED%0Ee%2C%60%A0%B4%9CV%AFO6%81%B7%F6Rd%DF%1B%84%EF%FA%EB%C4uc_%27%1A%8E%B6%23%3E%3E%3Am%E2%3A%D6oo%C7%D3%AF%7D%C2%3B%CD%85%BD%DD%C1i%0BHE%9E%C4%E7%3F%B4AX%9D%E8%18%E9G0%1A%C1%BE%3F%FBgD%5C%81%EEtx%DDfu%99PDV%02%F2%8D%89%C8%D3Ur6%3D%86%BC%AD%5B%2C%F2%E1%FE.%04%BA%B6%9F2%F2%04%E3%85%01/Q/9%A5%16%20%03%D6%E8%F3%9E%E5K%05q%BA%8C%02%C9%DF%1D%8D%CC%D8eL%60%D6%D2%B0QrK%2C@%A6%CAp2%F2%0CR%85%E8%E8%90%20%3F%5B%60%BAu%20%2C9%9A%05%C8%3C%EFJ%95%8A%FC%9C%BC%3C%FB%E0%E3%9D%B3F%3E%01%F2%25G%0B%96%00Ya%5DE%8A%3E%BF%E0%B9g%5D%E4%89%C8%D0%B1Ye%3Bg%9E%CFt%7B%AD%E4*%A0%EF@%83i43%8D%EE6%3ANe%D0%9A%E0%95I%C2%00%8B%AB%10%20%15%B9z%1B%95%E3O%17V%5Cq%AD%E0%60%C0*%B5%0Bj%07%8C%2Ci%FD%D3%89%EA%9C%A2d%1C%82%BA%00Wz%A2%F2%B9%89%B7p%D6%B1x%EE%02%F8%7D%93%EDI%82%5D%10%9C%B3%E4V%B82O%3A%AE%C3E%9C%E0%A2%3A%02%B9%25%C2%92%90%16%AD+%F0%5B%D7%C9%10%3C%F3%82T%5C%F2%C9%DD+%9F%A2l%60%E6Q%BDM2%04%F2J%D06tL%90*%F0Nf%0C%0Ah%89E%C5%87%08%15W%226%3E*%C6%E4%7B%7C%B8%E5%D0n%D1v%24%03%C7%85%CE%AA%B2F%90%0B9M%0C%0D9%7F%15%C82%09H%D7uh%5D%C8%82%B6iQ%0D%D6%E6%FB%05QE%1E%B2R%D7%17U%60%D3%D1%BD%D6.%A4B%A8%B8%0A%05%1E%7B%0AM%C0I%08%F0%3B%EF%26J%9BN%90%2C%C9+R%0D%C7%DA%85%F5t%C4%1C-Fl%2Cy%CBq%F1%FC%22%9B%F5Sp%F2g%99%1E%C0%93%E4_%1Bh%A5%B5%05%7EQ%D0%D8%0B%85%FD%01%3Cy%AC%DD6%262t%14M%7D%DF%E3%EA%DC%12%5C%DD%B5C%B4%DB%89@%F1%9C%C3i%FD%24%9C%16%7B%D3b%9A%04%DC%05%F6C%FE%CE7P%E0%99%27v%C4%89P%EF%17i%CD%15%A9%B8%29-%17%D31c%01%7E%DFd%26%A2%AB8%DD%25%5D%D0mh%F9%E9%92G*%01%CC%16%CC.%CE%D4%A8C%0F%D8%E9%E0%F9%D2%95%A8%9E_%04%FF%BC%DC%A4%F3g%24%E0.%CF%11lm%DFg%5D3%C30%B0L%BE%C9%2C%93%09Zb%87E%B6%99%29%8COd%7Ds%C6l%D7%0C%CC%C0%C1%ED.%17%A1oO%E7AF/%7CmC%BFf%2C%5EG%96%7C%DDg%C3%95%3D1q%B9*%F7l+-%B2%F3%A4%08U%84hyf%97%E9%A0%E1%9C%15.%03%24%8A%1B%AE%C3%97%03tQ%8E%19%FB%F2k%D3%B0%23%5E%F9%AE%D2%96J%AB%0E%F4%A0%BE%E6%06%11X%FC1%89S%00%3F%97%1CxW%04%9D%DEJSdA%96%0FG%FE%1EN*%27XT%81%8E%91%13%96p%EE%5E%DD%A1%5D%88T%DCl%1BG%D2%AC%D8%0A%5C%EF%C3%83%07%E1qO%19%CD%92/Zm%A8m%89%88%C5H%5E%B4%05%E7%AF%11%D5T%C1I%BE%A1%A4%C6%22%EF%2CdN4%94%ACp%B9%12-%AD%23%D4%F3%85%98%87%81N/%E0z%A3%7B%BE1M%171%0A%C8%3D%DE%0F%EF%9Eo%B1%B0%23%2Cr%7C0%FA%A9%D8%8D%F7%96%AC%B1-%CE%C9%5B%96%ACA%E3%AFS%C5%A9%3A%A7%D0H%9Cc%21%8B_%F8%3C%7B%F7%C2%18c%C1S%88%FD3%D9%3BQX%81%27%1B7%8F%E6%60%FE%89%DF%CD%02%E4%CB%D4%B8%F3%9B%05o%B5%88*%BB%B1%B8RX%89%3E%29Z%87%8B%D6a%A2%E6%7E%7C%B7%ECV%F8%7Dy%A8%3B%B4%DBf%FD%60%D1Rk%0ES%B7%0A%D9C1%B3%E9%E0%3C%AA%08r%1D%AEGc%C4%C6Ob%FD%3B_%9A%A6%89%93%BB%CAB%AEw%90e%3B%DB%B0%B5/_TW%C8%86%0D%B2%60%05%BA%B6%89Xh%EE%EF%B2%B2%10%C9%B3%92F%FF%9A%AA%C4zK%AC%C0%C0%25Y%A6e%DD-E%3C%FC%B4%DB%EA%5C%B9%5E%C7%C8%00%1A%06%16%A0%F6%ED%DD%AEy%14g%25%C0%F8*e%FF%EB%AFX%85%8A%16Q%01%CD%1D%D1A%22%AA%0D%88%0C%FFb%7DC%22%3A8%07%03%B85%16%15%C1K%B7t%C6%16%E7%E7%0EE%AB%D6%21V%1D%C4%92%17%9BM%D4%2C%CEB%80t%A36%D3.%5C%F4%CB%EF%16%19ZO%05%B0%0A2%BA%93%DE%06%28qt%1Fgk%A0%8CA%D7%E48Z%D9%24%82%7D%15%C7%7E%B5%E5u%9C%D1f%EC%A3%DA%D49B%CA%B7%12O%3D%FA*%1E%F7%96%89%96%A2Y%16%1E%A6%B5%8E%E5%B7%BA*%A9%DEV%D4-%9C%B4%BE%0A%DE%D8%D8%DF%D6uP%12V%AFe%9C%22%E8N%8D%3D%DF%60%D1%F3/%9B%28%C1%F5V%02S%BB%D0%EA%1C%C9%8C%F4%F0%23/%E1%83%E3SU%93%FE%1B%3E%D1%E5*Bz%5B%11%2C%9A%F4%7F%06%3A%B4%D4K%21j%9C%1E/z%96cMy%A9%E9%03%B1%B6%01%AD%FA%29%8E%B3%95%08%992%D2%F8%0F%3Fb%F5%83%CF%88%89i%7D%BE%91c%EA%D3%DBd%BAC%AB%DC%01%DD%7D%9CnD%21%A6%9E%0A%D2M%0F%FBo%C4%FE%27Z%B1%EC%E3%3D%A6%21q%C9%D1%82M%80%3C%D61%3EA%9F%F9%F5%3E%ECh%FA%105%A3%5E4%CA%02%A3%83%B5B%A1%B1%ECr%1B%29%05%BA%21c%26%A8%B9%8B%CDP%FB%0F%60%F0%F6%BB%90%DD%91%B0E%09%3A%8F%9E%5C%CD%9C%3C%D6i2%FD%9AV%D9t%CF3%18%DC%B9K%A48%D5%06%D3%F7U%F0R%98N%9Ac%94Xv%A0%D0%5C-%90%BB%C8%1Aw%F2%D5%B0%20%CF%DDN%80%26%D3%91S%C6%07%1C%7Bo%5B%8D%B2%3B%EE%C4%D2%DA%ABD%5D%A0%00f%26%06%B7%B3%BFg%95%E5%E3%A4%12%A8%C4%1E%AE%BA%13%E7%B4%FF%80%3F%9F%7B%01c_%19%5DF%21%E1%01%C7%8C%8F%98%C6%AE%AC%C5%7D%1B%AE%C76%DF%88%A8%AE%7C@ap%3A%9F%1Fxz%D3%AC%05%F9S%7F%2C%C4%86%CD-%A9%88%23%E3%23%26MDZ%87%7CCg%15%21%A7%A6%06%EF%5D%B5%1CoT%2CD%F1%84%17%5B%C6%A7%9A%DCa%FC%83%AE%CE%BD%98%7B%F0g%94%7C%F4%19%7C%03%B1TSb%C6%87%7C%9A%88%8C%8FY3D%5C%06l%CAcV%E3%13%99%13r%A2jS%9D%98%05p%8D%EAt%C8%E3%7F%F5W%03%27%FE%B3%7F%F60%E1%B4%FD%DD%06%C0%BF%80%C0%A1%F2%E5%7F%E8*%00%00%00%00IEND%AEB%60%82") );
+  }
+
+  w.msg = w.g.add("statictext", undefined, msg, {multiline: true} );
+	w.msg.preferredSize.width = 400;
+
+	if ( btn.constructor.name == "Array") {
+		w.btns = [];
+		w.btn_group = w.add("group {orientation: 'row', alignChildren: ['center', 'top'] }");
+		for ( var n = 0; n < btn.length; n++ ) {
+			w.btns.push( w.btn_group.add("button", undefined, btn[n].text ));
+			(function( _button, _value ) {
+				_button.onClick = function() { rs = _value; this.window.close() } 
+			})( w.btns[n], btn[n].value )
+		}
+	} else {
+		w.btn = w.add( "button", undefined, btn )
+		w.btn.onClick = function() {
+			w.close();
+		}
+	}
+  w.show();
+
+	return rs;
+}
+
+
+function openWebsite(url) {
+	url = url.split(" ");
+	url = url.join("+");
+	url = encodeURI( url );
+	if (File.fs == "Macintosh") {
+		var tempFile = File("~/Desktop/tempurl.webloc");
+		tempFile.open("w");
+		tempFile.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+		<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\
+		<plist version=\"1.0\">\
+			<dict>\
+				<key>URL</key>\
+				<string>"+url+"</string>\
+			</dict>\
+		</plist>");
+		tempFile.close();
+		tempFile.execute();
+		for (var aux = 0; aux < 100; aux++) {
+			$.sleep(10);
+		}
+		tempFile.remove();
+	} else {
+		var tempFile = File("~/Desktop/cuppascript.url");
+		tempFile.open("w");
+		tempFile.write("[InternetShortcut]\
+URL="+url);
+		tempFile.close();
+		tempFile.execute();
+		for (var aux = 0; aux < 100; aux++) {
+			$.sleep(10);
+		}
+		tempFile.remove();
+	}
+}
+
+function ensure_path_exists( path, base_path ) {
+  base_path = unescape(base_path);
+  path = path.replace(/^\//, "");
+  var bits = path.split("/");
+  // Das letzte bit ist der Dateiname
+  for ( var n = 0; n < bits.length; n++ ) {
+    if ( ! Folder( base_path + "/" + bits[n] ).exists ) Folder( base_path + "/" + bits[n] ).create();
+    base_path += "/" + bits[n];
+  }
+  return base_path ;
+}
+
+
+ 
+
+
+
+
+
+
+
+
+// --------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------
+//  JSON und RESTIX
+// --------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------
+function init() {
+
+  uid = ($.os.substring(0, 7)=="Windows") ? $.getenv("USERNAME") : $.getenv("USER")
+  beta = (uid == "cstef" || uid == "Gerald Singelmann" || uid == "me");
+  dev = (uid == "Gerald Singelmann" || uid == "me");
+  
+
+
+  // ------------------------------------------------------------------------------------------------
+  // Globale base64 Variablen
+  // ------------------------------------------------------------------------------------------------
+  END_OF_INPUT = -1;
+
+  base64Chars = new Array(
+    'A','B','C','D','E','F','G','H',
+    'I','J','K','L','M','N','O','P',
+    'Q','R','S','T','U','V','W','X',
+    'Y','Z','a','b','c','d','e','f',
+    'g','h','i','j','k','l','m','n',
+    'o','p','q','r','s','t','u','v',
+    'w','x','y','z','0','1','2','3',
+    '4','5','6','7','8','9','+','/'
+  );
+
+  reverseBase64Chars = new Array();
+  for (var i=0; i < base64Chars.length; i++){
+    reverseBase64Chars[base64Chars[i]] = i;
+  }
+
+
+  // ------------------------------------------------------------------------------------------------
+  // JSON
+  // ------------------------------------------------------------------------------------------------
+  if (typeof JSON !== "object") {
+    JSON = {};
+  }
+  
+  (function () {
+    "use strict";
+    
+    var rx_one = /^[\],:{}\s]*$/;
+    var rx_two = /\\(?:["\\\/bfnrt]|u[0-9a-fA-F]{4})/g;
+    var rx_three = /"[^"\\\n\r]*"|true|false|null|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?/g;
+    var rx_four = /(?:^|:|,)(?:\s*\[)+/g;
+    var rx_escapable = /[\\"\u0000-\u001f\u007f-\u009f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g;
+    var rx_dangerous = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g;
+    
+    function f(n) {
+      // Format integers to have at least two digits.
+      return (n < 10)
+          ? "0" + n
+          : n;
+    }
+    
+    function this_value() {
+      return this.valueOf();
+    }
+    
+    if (typeof Date.prototype.toJSON !== "function") {
+      
+      Date.prototype.toJSON = function () {
+        
+        return isFinite(this.valueOf())
+            ? (
+                this.getUTCFullYear()
+                + "-"
+                + f(this.getUTCMonth() + 1)
+                + "-"
+                + f(this.getUTCDate())
+                + "T"
+                + f(this.getUTCHours())
+                + ":"
+                + f(this.getUTCMinutes())
+                + ":"
+                + f(this.getUTCSeconds())
+                + "Z"
+            )
+            : null;
+      };
+      
+      Boolean.prototype.toJSON = this_value;
+      Number.prototype.toJSON = this_value;
+      String.prototype.toJSON = this_value;
+    }
+    
+    var gap;
+    var indent;
+    var meta;
+    var rep;
+    
+    
+    function quote(string) {
+      
+      // If the string contains no control characters, no quote characters, and no
+      // backslash characters, then we can safely slap some quotes around it.
+      // Otherwise we must also replace the offending characters with safe escape
+      // sequences.
+      
+      rx_escapable.lastIndex = 0;
+      return rx_escapable.test(string)
+          ? "\"" + string.replace(rx_escapable, function (a) {
+        var c = meta[a];
+        return typeof c === "string"
+            ? c
+            : "\\u" + ("0000" + a.charCodeAt(0).toString(16)).slice(-4);
+      }) + "\""
+          : "\"" + string + "\"";
+    }
+    
+    
+    function str(key, holder) {
+      
+      // Produce a string from holder[key].
+      
+      var i;          // The loop counter.
+      var k;          // The member key.
+      var v;          // The member value.
+      var length;
+      var mind = gap;
+      var partial;
+      var value = holder[key];
+      
+      // If the value has a toJSON method, call it to obtain a replacement value.
+      
+      if (
+          value
+          && typeof value === "object"
+          && typeof value.toJSON === "function"
+      ) {
+        value = value.toJSON(key);
+      }
+      
+      // If we were called with a replacer function, then call the replacer to
+      // obtain a replacement value.
+      
+      if (typeof rep === "function") {
+        value = rep.call(holder, key, value);
+      }
+      
+      // What happens next depends on the value's type.
+      
+      switch (typeof value) {
+        case "string":
+          return quote(value);
+        
+        case "number":
+          
+          // JSON numbers must be finite. Encode non-finite numbers as null.
+          
+          return (isFinite(value))
+              ? String(value)
+              : "null";
+        
+        case "boolean":
+        case "null":
+          
+          // If the value is a boolean or null, convert it to a string. Note:
+          // typeof null does not produce "null". The case is included here in
+          // the remote chance that this gets fixed someday.
+          
+          return String(value);
+          
+          // If the type is "object", we might be dealing with an object or an array or
+          // null.
+        
+        case "object":
+          
+          // Due to a specification blunder in ECMAScript, typeof null is "object",
+          // so watch out for that case.
+          
+          if (!value) {
+            return "null";
+          }
+          
+          // Make an array to hold the partial results of stringifying this object value.
+          
+          gap += indent;
+          partial = [];
+          
+          // Is the value an array?
+          
+          if (Object.prototype.toString.apply(value) === "[object Array]") {
+            
+            // The value is an array. Stringify every element. Use null as a placeholder
+            // for non-JSON values.
+            
+            length = value.length;
+            for (i = 0; i < length; i += 1) {
+              partial[i] = str(i, value) || "null";
+            }
+            
+            // Join all of the elements together, separated with commas, and wrap them in
+            // brackets.
+            
+            v = partial.length === 0
+                ? "[]"
+                : gap
+                    ? (
+                        "[\n"
+                        + gap
+                        + partial.join(",\n" + gap)
+                        + "\n"
+                        + mind
+                        + "]"
+                    )
+                    : "[" + partial.join(",") + "]";
+            gap = mind;
+            return v;
+          }
+          
+          // If the replacer is an array, use it to select the members to be stringified.
+          
+          if (rep && typeof rep === "object") {
+            length = rep.length;
+            for (i = 0; i < length; i += 1) {
+              if (typeof rep[i] === "string") {
+                k = rep[i];
+                v = str(k, value);
+                if (v) {
+                  partial.push(quote(k) + (
+                      (gap)
+                          ? ": "
+                          : ":"
+                  ) + v);
+                }
+              }
+            }
+          } else {
+            
+            // Otherwise, iterate through all of the keys in the object.
+            
+            for (k in value) {
+              if (Object.prototype.hasOwnProperty.call(value, k)) {
+                v = str(k, value);
+                if (v) {
+                  partial.push(quote(k) + (
+                      (gap)
+                          ? ": "
+                          : ":"
+                  ) + v);
+                }
+              }
+            }
+          }
+          
+          // Join all of the member texts together, separated with commas,
+          // and wrap them in braces.
+          
+          v = partial.length === 0
+              ? "{}"
+              : gap
+                  ? "{\n" + gap + partial.join(",\n" + gap) + "\n" + mind + "}"
+                  : "{" + partial.join(",") + "}";
+          gap = mind;
+          return v;
+      }
+    }
+    
+    // If the JSON object does not yet have a stringify method, give it one.
+    
+    if (typeof JSON.stringify !== "function") {
+      meta = {    // table of character substitutions
+        "\b": "\\b",
+        "\t": "\\t",
+        "\n": "\\n",
+        "\f": "\\f",
+        "\r": "\\r",
+        "\"": "\\\"",
+        "\\": "\\\\"
+      };
+      JSON.stringify = function (value, replacer, space) {
+        
+        // The stringify method takes a value and an optional replacer, and an optional
+        // space parameter, and returns a JSON text. The replacer can be a function
+        // that can replace values, or an array of strings that will select the keys.
+        // A default replacer method can be provided. Use of the space parameter can
+        // produce text that is more easily readable.
+        
+        var i;
+        gap = "";
+        indent = "";
+        
+        // If the space parameter is a number, make an indent string containing that
+        // many spaces.
+        
+        if (typeof space === "number") {
+          for (i = 0; i < space; i += 1) {
+            indent += " ";
+          }
+          
+          // If the space parameter is a string, it will be used as the indent string.
+          
+        } else if (typeof space === "string") {
+          indent = space;
+        }
+        
+        // If there is a replacer, it must be a function or an array.
+        // Otherwise, throw an error.
+        
+        rep = replacer;
+        if (replacer && typeof replacer !== "function" && (
+            typeof replacer !== "object"
+            || typeof replacer.length !== "number"
+        )) {
+          throw new Error("JSON.stringify");
+        }
+        
+        // Make a fake root object containing our value under the key of "".
+        // Return the result of stringifying the value.
+        
+        return str("", {"": value});
+      };
+    }
+    
+    
+    // If the JSON object does not yet have a parse method, give it one.
+    
+    if (typeof JSON.parse !== "function") {
+      JSON.parse = function (text, reviver) {
+        
+        // The parse method takes a text and an optional reviver function, and returns
+        // a JavaScript value if the text is a valid JSON text.
+        
+        var j;
+        
+        function walk(holder, key) {
+          
+          // The walk method is used to recursively walk the resulting structure so
+          // that modifications can be made.
+          
+          var k;
+          var v;
+          var value = holder[key];
+          if (value && typeof value === "object") {
+            for (k in value) {
+              if (Object.prototype.hasOwnProperty.call(value, k)) {
+                v = walk(value, k);
+                if (v !== undefined) {
+                  value[k] = v;
+                } else {
+                  delete value[k];
+                }
+              }
+            }
+          }
+          return reviver.call(holder, key, value);
+        }
+        
+        
+        // Parsing happens in four stages. In the first stage, we replace certain
+        // Unicode characters with escape sequences. JavaScript handles many characters
+        // incorrectly, either silently deleting them, or treating them as line endings.
+        
+        text = String(text);
+        rx_dangerous.lastIndex = 0;
+        if (rx_dangerous.test(text)) {
+          text = text.replace(rx_dangerous, function (a) {
+            return (
+                "\\u"
+                + ("0000" + a.charCodeAt(0).toString(16)).slice(-4)
+            );
+          });
+        }
+        
+        // In the second stage, we run the text against regular expressions that look
+        // for non-JSON patterns. We are especially concerned with "()" and "new"
+        // because they can cause invocation, and "=" because it can cause mutation.
+        // But just to be safe, we want to reject all unexpected forms.
+        
+        // We split the second stage into 4 regexp operations in order to work around
+        // crippling inefficiencies in IE's and Safari's regexp engines. First we
+        // replace the JSON backslash pairs with "@" (a non-JSON character). Second, we
+        // replace all simple value tokens with "]" characters. Third, we delete all
+        // open brackets that follow a colon or comma or that begin the text. Finally,
+        // we look to see that the remaining characters are only whitespace or "]" or
+        // "," or ":" or "{" or "}". If that is so, then the text is safe for eval.
+        
+        if (
+            rx_one.test(
+                text
+                    .replace(rx_two, "@")
+                    .replace(rx_three, "]")
+                    .replace(rx_four, "")
+            )
+        ) {
+          
+          // In the third stage we use the eval function to compile the text into a
+          // JavaScript structure. The "{" operator is subject to a syntactic ambiguity
+          // in JavaScript: it can begin a block or an object literal. We wrap the text
+          // in parens to eliminate the ambiguity.
+          
+          j = eval("(" + text + ")");
+          
+          // In the optional fourth stage, we recursively walk the new structure, passing
+          // each name/value pair to a reviver function for possible transformation.
+          
+          return (typeof reviver === "function")
+              ? walk({"": j}, "")
+              : j;
+        }
+        
+        // If the text is not JSON parseable, then a SyntaxError is thrown.
+        
+        throw new SyntaxError("JSON.parse");
+      };
+    }
+  }());
+  
+
+
+  // ------------------------------------------------------------------------------------------------
+  // ------------------------------------------------------------------------------------------------
+  // HTTP
+  // ------------------------------------------------------------------------------------------------
+
+	/****************
+	# Connect InDesign to the web
+	* HTTPS supported 
+	* Works form CS4 to CC 2018 (ExtendScript based library)
+	* Based on VBScript/ServerXMLHTTP (Win) AppleScript/curl (Mac) relies on app.doScript()
+
+	## Getting started
+	See examples/connect.jsx
+
+	* @Version: 1.2
+	* @Date: 2019-02-20
+	* @Author: Gregor Fellenz, http://www.publishingx.de
+	* Acknowledgments: 
+	** Library design pattern from Marc Aturet https://forums.adobe.com/thread/1111415
+	*/
+
+	$.global.hasOwnProperty('restix') || (function (HOST, SELF) {
+		HOST[SELF] = SELF;
+
+		/****************
+		* PRIVATE
+		*/
+		var INNER = {};
+		INNER.version = "2019-02-20-1.2";
+
+
+		/** Returns if the operating system is windows 
+		* @return {String} true | false
+		*/
+		INNER.isWindows = function () {
+			return ($.os.indexOf("Windows") > -1);
+		}
+
+		/** Check the request information object and construct a full URL
+		* @param {request} Request information object
+		* @returns{request} Request information object or throws an error
+		*/
+		INNER.checkRequest = function (request) {
+			if (request.url == undefined || request.url == "") throw Error("No property [url] found/set");
+			if (request.url.toString().slice(-1) == "/") request.url = request.url.toString().slice(0, -1);
+
+			if (request.command == undefined) request.command = "";
+			if (request.command.toString()[0] == "/") request.command = request.command.toString().substr(1);
+
+			if (request.port == undefined) request.port = "";
+			if (isNaN(request.port)) throw Error("[port] is Not a Number");
+
+			// Add port
+			if (request.port != "") {
+				request.fullURL = request.url + ":" + request.port;
+			}
+			else {
+				request.fullURL = request.url;
+			}
+
+			// Add command 
+			if (request.command != "") {
+				request.fullURL = request.fullURL + "/" + request.command;
+			}
+
+
+			if (request.method == undefined || request.method == "") request.method = "GET";
+			if (!(request.method == "GET" || request.method == "POST" || request.method == "PUT" || request.method == "PATCH" || request.method == "DELETE")) throw Error("Method " + request.method + " is not supported");  // Missing HEAD 
+
+			if (request.method == "POST" && (request.binaryFilePath == undefined || request.binaryFilePath == "")) request.binaryFilePath = false;
+
+			if (request.headers == undefined) request.headers = [];
+			if (!(request.headers instanceof Array)) throw Error("Provide [headers] as Array of {name:'',value''} objects");
+			if (request.body == undefined || request.body == "") request.body = false;
+
+			if (request.body && request.binaryFilePath) throw Error("You must not provide [body] and [binaryFilePath]");
+
+			request.unsafe = false;
+
+			if (request.proxy == undefined) request.proxy = false;
+
+			return request;
+		}
+
+		/** The main connection function. Need to be slashed
+		* @return {response} Response result object 
+		*/
+		INNER.processRequest = function (request, outFile) {
+			var response = {
+				error: false,
+				errorMsg: "",
+				body: "",
+				httpStatus: 900
+			};
+
+			var scriptCommands = [];
+			var systemCmd = "";
+			var result = "";
+
+			if (INNER.isWindows()) {
+				// Since Win10 Update Feb 2019 msxml3 does not work anymore...
+				scriptCommands.push('Dim xHttp : Set xHttp = CreateObject("MSXML2.ServerXMLHTTP.6.0")');
+				// Konstanten für ADODB.Stream
+				scriptCommands.push('Const adTypeBinary = 1');
+				scriptCommands.push('Const adSaveCreateOverWrite = 2');
+				scriptCommands.push('Const adModeReadWrite = 3');
+
+				scriptCommands.push('Dim res');
+				scriptCommands.push('On Error Resume Next');
+				scriptCommands.push('xHttp.Open "' + request.method + '", "' + request.fullURL + '", False');
+
+				if (request.proxy != false) {
+					// xHttp.SetProxy 1
+					scriptCommands.push('xHttp.setProxy 2, "' + request.proxy + '"');
+				}
+
+				for (var i = 0; i < request.headers.length; i++) {
+					scriptCommands.push('xHttp.setRequestHeader "' + request.headers[i].name + '","' + request.headers[i].value + '"');
+				}
+				if (request.unsafe) {
+					//~ ' 2 stands for SXH_OPTION_IGNORE_SERVER_SSL_CERT_ERROR_FLAGS
+					//~ ' 13056 means ignore all server side cert error
+					scriptCommands.push('xHttp.setOption 2, 13056');
+				}
+
+				if (request.body) {
+					scriptCommands.push('xHttp.Send "' + request.body.replace(/"/g, '""').replace(/\n|\r/g, '') + '"');
+				}
+				else if (request.method == "POST" && request.binaryFilePath) {
+					// http://www.vbforums.com/showthread.php?418570-RESOLVED-HTTP-POST-a-zip-file
+					scriptCommands.push('    Dim sFile');
+					scriptCommands.push('    sFile = "' + request.binaryFilePath + '"');
+
+
+					scriptCommands.push('    Set objStream = CreateObject("ADODB.Stream")');
+					scriptCommands.push('    objStream.Type = adTypeBinary');
+					scriptCommands.push('    objStream.Mode = adModeReadWrite');
+					scriptCommands.push('    objStream.Open');
+					scriptCommands.push('    objStream.LoadFromFile(sFile)');
+
+					scriptCommands.push('    xHttp.SetRequestHeader "Content-Length", objStream.Size');
+					scriptCommands.push('    xHttp.Send objStream.Read(objStream.Size)');
+					scriptCommands.push('    Set objStream= Nothing');
+				}
+				else {
+					scriptCommands.push('xHttp.Send');
+				}
+				
+				scriptCommands.push('If err.Number = 0 Then');
+
+				if (outFile) {
+					scriptCommands.push('    Set objStream = CreateObject("ADODB.Stream")');
+					scriptCommands.push('    objStream.Type = adTypeBinary');
+					scriptCommands.push('    objStream.Mode = adModeReadWrite');
+					scriptCommands.push('    objStream.Open');
+					scriptCommands.push('    objStream.Write xHttp.responseBody');
+					scriptCommands.push('    objStream.SaveToFile "' + outFile.fsName + '" , adSaveCreateOverWrite');
+					scriptCommands.push('    objStream.Close');
+					scriptCommands.push('    Set objStream= Nothing');
+					/*	
+						ADODB.Stream let's you also save text data and let's you specify charset (codepage) for text-to-binary data conversion (against of Scripting.TextStream object). 
+						Const adTypeText = 2
+						Const adSaveCreateOverWrite = 2
+						
+						'Create Stream object
+						Dim BinaryStream
+						Set BinaryStream = CreateObject("ADODB.Stream")
+						
+						'Specify stream type - we want To save text/string data.
+						BinaryStream.Type = adTypeText
+						
+						'Specify charset For the source text (unicode) data.
+						If Len(CharSet) > 0 Then
+							BinaryStream.CharSet = CharSet
+						End If
+						
+						'Open the stream And write binary data To the object
+						BinaryStream.Open
+						BinaryStream.WriteText Text
+						
+						'Save binary data To disk
+						BinaryStream.SaveToFile FileName, adSaveCreateOverWrite
+					End Function
+						*/
+					scriptCommands.push('	res = "outFile" & vbCr & "------http_code" &  xHttp.status');
+				}
+				else {
+					// ' give respones
+					scriptCommands.push('	res = xHttp.responseText  &  vbCr & "------http_code" &  xHttp.status');
+				}
+
+				scriptCommands.push('Else');
+				scriptCommands.push('	res =  "xHttpError "  & Err.Description &  " " & Err.Number');
+				scriptCommands.push('End If');
+
+				scriptCommands.push('Set xHttp = Nothing');
+				scriptCommands.push('returnValue = res');
+
+				scriptCommands = scriptCommands.join("\r\n");
+
+				try {
+					result = app.doScript(scriptCommands, ScriptLanguage.VISUAL_BASIC);
+				}
+				catch (e) {
+					result = "doScriptError: " + e.message;
+				}
+
+			}
+			else { // Mac
+				// -L follow redirects 
+				var curlString = 'curl --silent --show-error -g -L ';
+        curlString += " -m 60 ";
+				for (var i = 0; i < request.headers.length; i++) {
+					curlString += (' -H \'' + request.headers[i].name + ': ' + request.headers[i].value + '\'');
+				}
+				if (request.unsafe) {
+					// Es gab einen Fall wo am Mac mit -k es nicht funktioniert hat curl: (35) Server aborted the SSL handshake
+					curlString += ' -k ';
+				}
+
+				if (request.proxy != false) {
+					curlString += ' --proxy ' + request.proxy
+				}
+
+				curlString += ' -X ' + request.method;
+				if (request.body) {
+					curlString += ' -d \'' + request.body.replace(/"/g, '\\"').replace(/\n|\r/g, '') + '\'';
+				}
+				else if (request.method == "POST" && request.binaryFilePath) {
+					curlString += ' --data-binary \'@' + request.binaryFilePath + '\'';
+				}
+
+				if (outFile) {
+					curlString += ' -w \'outFile\n------http_code%{http_code}\'';
+					curlString += ' -o \'' + outFile.fsName + '\''
+				}
+				else {
+					curlString += ' -w \'\n------http_code%{http_code}\'';
+				}
+				curlString += ' \'' + request.fullURL + '\'';
+				//~ 			$.writeln(curlString);
+				try {
+					result = app.doScript('do shell script "' + curlString + '"', ScriptLanguage.APPLESCRIPT_LANGUAGE);
+				}
+				catch (e) {
+					result = "doScriptError: " + e.message;
+				}
+			}
+
+			// Fill response 
+			if (typeof result == 'undefined') {
+				throw Error("No result value. Probably System Script could not run?");
+			}
+			if (result.match(/^xHttpError|^curl: \(\d+\)|^doScriptError:/)) {
+				response.error = true;
+				response.errorMsg = result;
+			}
+			else {
+				var resArray = result.split("\r------http_code");
+				if (resArray.length == 2) {
+					response.httpStatus = resArray[1] * 1;
+					response.body = resArray[0];
+				}
+				else {
+					throw Error("Wrong result value: [" + result + "]");
+				}
+			}
+
+			return response;
+		}
+
+
+		/****************
+			* API 
+			*/
+		/** Process an HTTP Request 
+		* @param {request} Request object with connection Information
+		* @return {response} Response object {error:error, errorMsg:errorMsg, body:body, httpStatus:httpStatus}
+		*/
+		SELF.fetch = function (request) {
+			request = INNER.checkRequest(request);
+			return INNER.processRequest(request, false);
+		}
+
+		/** Process an HTTP Request and writes the result to a give File
+		* @param {request} Request Object with connection Information
+		* @param {outFile} File to write to
+		* @return {response} Response object {error:error, errorMsg:errorMsg, body:body, httpStatus:httpStatus}
+		*/
+		SELF.fetchFile = function (request, outFile) {
+			if (outFile == undefined) throw Error("No file provided");
+			if (outFile instanceof String) outFile = File(outFile);
+
+			request = INNER.checkRequest(request);
+			var response = INNER.processRequest(request, outFile);
+			if (!outFile.exists) {
+				response.error = true;
+				response.errorMsg = "File was not created\n" + response.errorMsg;
+			}
+			return response;
+		}
+
+
+
+	})($.global, { toString: function () { return 'restix'; } });
+
+
+
+  // ------------------------------------------------------------------------------------------------
+  // ------------------------------------------------------------------------------------------------
+  // MD5
+  // ------------------------------------------------------------------------------------------------
+  md5 = function(s) {
+    function md5cycle(x, k) {
+      var a = x[0],
+        b = x[1],
+        c = x[2],
+        d = x[3];
+
+      a = ff(a, b, c, d, k[0], 7, -680876936);
+      d = ff(d, a, b, c, k[1], 12, -389564586);
+      c = ff(c, d, a, b, k[2], 17, 606105819);
+      b = ff(b, c, d, a, k[3], 22, -1044525330);
+      a = ff(a, b, c, d, k[4], 7, -176418897);
+      d = ff(d, a, b, c, k[5], 12, 1200080426);
+      c = ff(c, d, a, b, k[6], 17, -1473231341);
+      b = ff(b, c, d, a, k[7], 22, -45705983);
+      a = ff(a, b, c, d, k[8], 7, 1770035416);
+      d = ff(d, a, b, c, k[9], 12, -1958414417);
+      c = ff(c, d, a, b, k[10], 17, -42063);
+      b = ff(b, c, d, a, k[11], 22, -1990404162);
+      a = ff(a, b, c, d, k[12], 7, 1804603682);
+      d = ff(d, a, b, c, k[13], 12, -40341101);
+      c = ff(c, d, a, b, k[14], 17, -1502002290);
+      b = ff(b, c, d, a, k[15], 22, 1236535329);
+
+      a = gg(a, b, c, d, k[1], 5, -165796510);
+      d = gg(d, a, b, c, k[6], 9, -1069501632);
+      c = gg(c, d, a, b, k[11], 14, 643717713);
+      b = gg(b, c, d, a, k[0], 20, -373897302);
+      a = gg(a, b, c, d, k[5], 5, -701558691);
+      d = gg(d, a, b, c, k[10], 9, 38016083);
+      c = gg(c, d, a, b, k[15], 14, -660478335);
+      b = gg(b, c, d, a, k[4], 20, -405537848);
+      a = gg(a, b, c, d, k[9], 5, 568446438);
+      d = gg(d, a, b, c, k[14], 9, -1019803690);
+      c = gg(c, d, a, b, k[3], 14, -187363961);
+      b = gg(b, c, d, a, k[8], 20, 1163531501);
+      a = gg(a, b, c, d, k[13], 5, -1444681467);
+      d = gg(d, a, b, c, k[2], 9, -51403784);
+      c = gg(c, d, a, b, k[7], 14, 1735328473);
+      b = gg(b, c, d, a, k[12], 20, -1926607734);
+
+      a = hh(a, b, c, d, k[5], 4, -378558);
+      d = hh(d, a, b, c, k[8], 11, -2022574463);
+      c = hh(c, d, a, b, k[11], 16, 1839030562);
+      b = hh(b, c, d, a, k[14], 23, -35309556);
+      a = hh(a, b, c, d, k[1], 4, -1530992060);
+      d = hh(d, a, b, c, k[4], 11, 1272893353);
+      c = hh(c, d, a, b, k[7], 16, -155497632);
+      b = hh(b, c, d, a, k[10], 23, -1094730640);
+      a = hh(a, b, c, d, k[13], 4, 681279174);
+      d = hh(d, a, b, c, k[0], 11, -358537222);
+      c = hh(c, d, a, b, k[3], 16, -722521979);
+      b = hh(b, c, d, a, k[6], 23, 76029189);
+      a = hh(a, b, c, d, k[9], 4, -640364487);
+      d = hh(d, a, b, c, k[12], 11, -421815835);
+      c = hh(c, d, a, b, k[15], 16, 530742520);
+      b = hh(b, c, d, a, k[2], 23, -995338651);
+
+      a = ii(a, b, c, d, k[0], 6, -198630844);
+      d = ii(d, a, b, c, k[7], 10, 1126891415);
+      c = ii(c, d, a, b, k[14], 15, -1416354905);
+      b = ii(b, c, d, a, k[5], 21, -57434055);
+      a = ii(a, b, c, d, k[12], 6, 1700485571);
+      d = ii(d, a, b, c, k[3], 10, -1894986606);
+      c = ii(c, d, a, b, k[10], 15, -1051523);
+      b = ii(b, c, d, a, k[1], 21, -2054922799);
+      a = ii(a, b, c, d, k[8], 6, 1873313359);
+      d = ii(d, a, b, c, k[15], 10, -30611744);
+      c = ii(c, d, a, b, k[6], 15, -1560198380);
+      b = ii(b, c, d, a, k[13], 21, 1309151649);
+      a = ii(a, b, c, d, k[4], 6, -145523070);
+      d = ii(d, a, b, c, k[11], 10, -1120210379);
+      c = ii(c, d, a, b, k[2], 15, 718787259);
+      b = ii(b, c, d, a, k[9], 21, -343485551);
+
+      x[0] = add32(a, x[0]);
+      x[1] = add32(b, x[1]);
+      x[2] = add32(c, x[2]);
+      x[3] = add32(d, x[3]);
+
+    }
+
+    function cmn(q, a, b, x, s, t) {
+      a = add32(add32(a, q), add32(x, t));
+      return add32((a << s) | (a >>> (32 - s)), b);
+    }
+
+    function ff(a, b, c, d, x, s, t) {
+      return cmn((b & c) | ((~b) & d), a, b, x, s, t);
+    }
+
+    function gg(a, b, c, d, x, s, t) {
+      return cmn((b & d) | (c & (~d)), a, b, x, s, t);
+    }
+
+    function hh(a, b, c, d, x, s, t) {
+      return cmn(b ^ c ^ d, a, b, x, s, t);
+    }
+
+    function ii(a, b, c, d, x, s, t) {
+      return cmn(c ^ (b | (~d)), a, b, x, s, t);
+    }
+
+    function md51(s) {
+      txt = '';
+      var n = s.length,
+        state = [1732584193, -271733879, -1732584194, 271733878],
+        i;
+      for (i = 64; i <= s.length; i += 64) {
+        md5cycle(state, md5blk(s.substring(i - 64, i)));
+      }
+      s = s.substring(i - 64);
+      var tail = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+      for (i = 0; i < s.length; i++)
+        tail[i >> 2] |= s.charCodeAt(i) << ((i % 4) << 3);
+      tail[i >> 2] |= 0x80 << ((i % 4) << 3);
+      if (i > 55) {
+        md5cycle(state, tail);
+        for (i = 0; i < 16; i++) tail[i] = 0;
+      }
+      tail[14] = n * 8;
+      md5cycle(state, tail);
+      return state;
+    }
+
+    /* there needs to be support for Unicode here,
+    * unless we pretend that we can redefine the MD-5
+    * algorithm for multi-byte characters (perhaps
+    * by adding every four 16-bit characters and
+    * shortening the sum to 32 bits). Otherwise
+    * I suggest performing MD-5 as if every character
+    * was two bytes--e.g., 0040 0025 = @%--but then
+    * how will an ordinary MD-5 sum be matched?
+    * There is no way to standardize text to something
+    * like UTF-8 before transformation; speed cost is
+    * utterly prohibitive. The JavaScript standard
+    * itself needs to look at this: it should start
+    * providing access to strings as preformed UTF-8
+    * 8-bit unsigned value arrays.
+    */
+    function md5blk(s) { /* I figured global was faster.   */
+      var md5blks = [],
+        i; /* Andy King said do it this way. */
+      for (i = 0; i < 64; i += 4) {
+        md5blks[i >> 2] = s.charCodeAt(i) +
+          (s.charCodeAt(i + 1) << 8) +
+          (s.charCodeAt(i + 2) << 16) +
+          (s.charCodeAt(i + 3) << 24);
+      }
+      return md5blks;
+    }
+
+    var hex_chr = '0123456789abcdef'.split('');
+
+    function rhex(n) {
+      var s = '',
+        j = 0;
+      for (; j < 4; j++)
+        s += hex_chr[(n >> (j * 8 + 4)) & 0x0F] +
+        hex_chr[(n >> (j * 8)) & 0x0F];
+      return s;
+    }
+
+    function hex(x) {
+      for (var i = 0; i < x.length; i++)
+        x[i] = rhex(x[i]);
+      return x.join('');
+    }
+
+    function add32(a, b) {
+      return (a + b) & 0xFFFFFFFF;
+    }
+
+    return hex(md51(s));
+
+  }
+}
