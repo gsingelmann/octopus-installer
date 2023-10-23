@@ -900,6 +900,7 @@ function init() {
   uid = ($.os.substring(0, 7)=="Windows") ? $.getenv("USERNAME") : $.getenv("USER")
   user_is_beta = (
       uid == "cstef" || 
+      uid == "Switch" || 
       uid == "rseid" || 
       uid == "aflae" || 
       uid == "Nicole Weckler" || 
